@@ -1,10 +1,10 @@
-package com.votingbooth.gatewayapi.gatewayapi;
+package com.votingbooth.gateway;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 
 @SpringBootTest
-class GatewayApiApplicationTests {
+class GatewayApplicationTests {
 
     @Test
     void contextLoads() {

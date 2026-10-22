@@ -1,13 +1,13 @@
-package com.votingbooth.gatewayapi.gatewayapi;
+package com.votingbooth.gateway;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 @SpringBootApplication
-public class GatewayApiApplication {
+public class GatewayApplication {
 
     public static void main(String[] args) {
-        SpringApplication.run(GatewayApiApplication.class, args);
+        SpringApplication.run(GatewayApplication.class, args);
     }
 
 }
