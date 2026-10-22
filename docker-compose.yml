@@ -1,0 +1,157 @@
+# The whole VotingBooth backend behind the gateway: auth, the mobile BFF and the internal services,
+# each with its own Postgres. Every service is built from its sibling checkout in ../; set
+# <NAME>_PATH (e.g. LAW_SERVICE_PATH) if a checkout lives elsewhere.
+# Host ports follow the local profiles: 8080 auth-api, 8081 gateway, 8082 vote-api, 8083 law-api,
+# 8085 representative-api, 8086 mobile-bff.
+# auth-api needs JWT_PRIVATE_KEY (see README) in the environment or in a .env file next to this one.
+services:
+  gateway:
+    build: .
+    restart: always
+    depends_on:
+      - auth-api
+      - mobile-bff
+    environment:
+      SERVICES_MOBILE_BFF_URI: http://mobile-bff:8086
+      # Tokens carry iss=http://localhost:8080 (what clients see), which isn't reachable from this
+      # container, so fetch the signing keys directly instead of discovering them from the issuer.
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://auth-api:8080/oauth2/jwks
+    ports:
+      - "${GATEWAY_PORT:-8081}:8081"
+
+  auth-postgres:
+    image: postgres:16
+    restart: always
+    environment:
+      POSTGRES_DB: auth
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d auth"]
+      interval: 2s
+      retries: 30
+    volumes:
+      - auth-postgres-data:/var/lib/postgresql/data
+
+  auth-api:
+    build:
+      context: ${AUTH_SERVICE_PATH:-../auth-api}
+    restart: always
+    depends_on:
+      auth-postgres:
+        condition: service_healthy
+    environment:
+      AUTH_DATABASE_URL: jdbc:postgresql://auth-postgres:5432/auth?user=postgres&password=postgres
+      AUTHORIZATION_SERVER_ISSUER: http://localhost:8080
+      JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY:?set JWT_PRIVATE_KEY, see README}
+    ports:
+      - "${AUTH_API_PORT:-8080}:8080"
+
+  mobile-bff:
+    build:
+      context: ${MOBILE_BFF_PATH:-../VotingBooth-Mobile-BFF}
+    restart: always
+    depends_on:
+      - law-api
+      - representative-api
+    environment:
+      LAW_API_URL: http://law-api:8080
+      REPRESENTATIVE_API_URL: http://representative-api:8085
+    ports:
+      - "${MOBILE_BFF_PORT:-8086}:8086"
+
+  vote-postgres:
+    image: postgres:16
+    restart: always
+    environment:
+      POSTGRES_DB: app
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d app"]
+      interval: 2s
+      retries: 30
+    volumes:
+      - vote-postgres-data:/var/lib/postgresql/data
+
+  vote-api:
+    build:
+      context: ${VOTE_SERVICE_PATH:-../vote-api}
+    restart: always
+    depends_on:
+      vote-postgres:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://vote-postgres:5432/app
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+    ports:
+      - "${VOTE_API_PORT:-8082}:8080"
+
+  law-postgres:
+    image: postgres:16
+    restart: always
+    environment:
+      POSTGRES_DB: laws
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d laws"]
+      interval: 2s
+      retries: 30
+    volumes:
+      - law-postgres-data:/var/lib/postgresql/data
+
+  law-api:
+    build:
+      context: ${LAW_SERVICE_PATH:-../law-service}
+      dockerfile: api/Dockerfile
+    restart: always
+    depends_on:
+      law-postgres:
+        condition: service_healthy
+    environment:
+      # LAW_DATASOURCE_URL=jdbc:postgresql://host.docker.internal:5434/laws reuses the database
+      # of law-service's own compose, with the data its job already synced.
+      SPRING_DATASOURCE_URL: ${LAW_DATASOURCE_URL:-jdbc:postgresql://law-postgres:5432/laws}
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+    ports:
+      - "${LAW_API_PORT:-8083}:8080"
+
+  representative-postgres:
+    image: postgres:16
+    restart: always
+    environment:
+      POSTGRES_DB: representatives
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d representatives"]
+      interval: 2s
+      retries: 30
+    volumes:
+      - representative-postgres-data:/var/lib/postgresql/data
+
+  representative-api:
+    build:
+      context: ${REPRESENTATIVE_SERVICE_PATH:-../representative-service}
+      dockerfile: api/Dockerfile
+    restart: always
+    depends_on:
+      representative-postgres:
+        condition: service_healthy
+    environment:
+      # REPRESENTATIVE_DATASOURCE_URL=jdbc:postgresql://host.docker.internal:5433/representatives reuses the
+      # database of representative-service's own compose.
+      SPRING_DATASOURCE_URL: ${REPRESENTATIVE_DATASOURCE_URL:-jdbc:postgresql://representative-postgres:5432/representatives}
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+    ports:
+      - "${REPRESENTATIVE_API_PORT:-8085}:8085"
+
+volumes:
+  auth-postgres-data:
+  vote-postgres-data:
+  law-postgres-data:
+  representative-postgres-data:
