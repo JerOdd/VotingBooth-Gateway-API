@@ -1,5 +1,6 @@
 # The whole VotingBooth backend behind the gateway: auth, the mobile BFF and the internal services,
-# each with its own Postgres. Every service is built from its sibling checkout in ../; set
+# each with its own Postgres, plus the law and representative jobs that fill those databases from the
+# Assemblée nationale open data (they run once at startup and exit). Every service is built from its sibling checkout in ../; set
 # <NAME>_PATH (e.g. LAW_SERVICE_PATH) if a checkout lives elsewhere.
 # Host ports follow the local profiles: 8080 auth-api, 8081 gateway, 8082 vote-api, 8083 law-api,
 # 8085 representative-api, 8086 mobile-bff.
@@ -111,13 +112,33 @@ services:
       law-postgres:
         condition: service_healthy
     environment:
-      # LAW_DATASOURCE_URL=jdbc:postgresql://host.docker.internal:5434/laws reuses the database
-      # of law-service's own compose, with the data its job already synced.
-      SPRING_DATASOURCE_URL: ${LAW_DATASOURCE_URL:-jdbc:postgresql://law-postgres:5432/laws}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://law-postgres:5432/laws
       SPRING_DATASOURCE_USERNAME: postgres
       SPRING_DATASOURCE_PASSWORD: postgres
     ports:
       - "${LAW_API_PORT:-8083}:8080"
+
+  # Runs one sync and exits; `docker compose up law-job` runs it again.
+  law-job:
+    build:
+      context: ${LAW_SERVICE_PATH:-../law-service}
+      dockerfile: job/Dockerfile
+    restart: "no"
+    depends_on:
+      law-postgres:
+        condition: service_healthy
+      s3-init:
+        condition: service_completed_successfully
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://law-postgres:5432/laws
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+      STORAGE_ENDPOINT: http://s3:8333
+      STORAGE_REGION: us-east-1
+      STORAGE_BUCKET: law-raw
+      STORAGE_ACCESS_KEY: local
+      STORAGE_SECRET_KEY: local-secret
+      STORAGE_PATH_STYLE: "true"
 
   representative-postgres:
     image: postgres:16
@@ -142,16 +163,67 @@ services:
       representative-postgres:
         condition: service_healthy
     environment:
-      # REPRESENTATIVE_DATASOURCE_URL=jdbc:postgresql://host.docker.internal:5433/representatives reuses the
-      # database of representative-service's own compose.
-      SPRING_DATASOURCE_URL: ${REPRESENTATIVE_DATASOURCE_URL:-jdbc:postgresql://representative-postgres:5432/representatives}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://representative-postgres:5432/representatives
       SPRING_DATASOURCE_USERNAME: postgres
       SPRING_DATASOURCE_PASSWORD: postgres
     ports:
       - "${REPRESENTATIVE_API_PORT:-8085}:8085"
+
+  # Runs one sync and exits; `docker compose up representative-job` runs it again.
+  representative-job:
+    build:
+      context: ${REPRESENTATIVE_SERVICE_PATH:-../representative-service}
+      dockerfile: job/Dockerfile
+    restart: "no"
+    depends_on:
+      representative-postgres:
+        condition: service_healthy
+      s3-init:
+        condition: service_completed_successfully
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://representative-postgres:5432/representatives
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+      STORAGE_ENDPOINT: http://s3:8333
+      STORAGE_REGION: us-east-1
+      STORAGE_BUCKET: representative-raw
+      STORAGE_ACCESS_KEY: local
+      STORAGE_SECRET_KEY: local-secret
+      STORAGE_PATH_STYLE: "true"
+
+  # SeaweedFS as an S3-compatible store standing in for OVH Object Storage, shared by both jobs.
+  s3:
+    image: chrislusf/seaweedfs:4.48
+    restart: always
+    # SeaweedFS rejects signed requests unless an identity is configured, even locally.
+    environment:
+      S3_IDENTITY: >-
+        {"identities": [{"name": "local",
+                         "credentials": [{"accessKey": "local", "secretKey": "local-secret"}],
+                         "actions": ["Admin", "Read", "Write", "List", "Tagging"]}]}
+    entrypoint: ["sh", "-c", "echo \"$$S3_IDENTITY\" > /tmp/s3.json && exec weed server -s3 -s3.config=/tmp/s3.json -dir=/data"]
+    volumes:
+      - s3-data:/data
+
+  # Creates the raw buckets with versioning on, as they must be on OVH.
+  s3-init:
+    image: amazon/aws-cli:2.27.50
+    depends_on:
+      - s3
+    environment:
+      AWS_ACCESS_KEY_ID: local
+      AWS_SECRET_ACCESS_KEY: local-secret
+      AWS_DEFAULT_REGION: us-east-1
+    entrypoint: >
+      sh -c "until aws --endpoint-url http://s3:8333 s3api list-buckets > /dev/null 2>&1; do sleep 1; done;
+             for b in law-raw representative-raw; do
+               aws --endpoint-url http://s3:8333 s3api create-bucket --bucket $$b || true;
+               aws --endpoint-url http://s3:8333 s3api put-bucket-versioning --bucket $$b --versioning-configuration Status=Enabled;
+             done"
 
 volumes:
   auth-postgres-data:
   vote-postgres-data:
   law-postgres-data:
   representative-postgres-data:
+  s3-data:
