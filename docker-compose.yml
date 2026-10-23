@@ -55,9 +55,11 @@ services:
     depends_on:
       - law-api
       - representative-api
+      - vote-api
     environment:
       LAW_API_URL: http://law-api:8080
       REPRESENTATIVE_API_URL: http://representative-api:8085
+      VOTE_API_URL: http://vote-api:8080
     ports:
       - "${MOBILE_BFF_PORT:-8086}:8086"
 
@@ -96,12 +98,18 @@ services:
       context: ${VOTE_SERVICE_PATH:-../vote-api}
       dockerfile: job/Dockerfile
     restart: "no"
+    # Law ballots come from law-api's links, which law-job fills: it runs after it.
     depends_on:
       vote-postgres:
         condition: service_healthy
       s3-init:
         condition: service_completed_successfully
+      law-api:
+        condition: service_started
+      law-job:
+        condition: service_completed_successfully
     environment:
+      LAW_API_URL: http://law-api:8080
       SPRING_DATASOURCE_URL: jdbc:postgresql://vote-postgres:5432/app
       SPRING_DATASOURCE_USERNAME: postgres
       SPRING_DATASOURCE_PASSWORD: postgres
