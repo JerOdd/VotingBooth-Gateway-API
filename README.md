@@ -5,9 +5,9 @@ API Gateway for VotingBooth: the single entry point that authenticates requests 
 ## Running the whole backend locally
 
 `docker-compose.yml` builds and starts the gateway, auth-api, the mobile BFF and the internal services
-(vote, law, representative) from the sibling checkouts in `../`. The law and representative jobs run once at
-startup to fill their databases from the Assemblée nationale open data (about a minute), then exit;
-`docker compose up law-job representative-job` syncs again.
+(vote, law, representative) from the sibling checkouts in `../`. The vote, law and representative jobs run once at
+startup to fill their databases from the Assemblée nationale open data (about a minute, three for vote-job), then exit;
+`docker compose up vote-job law-job representative-job` syncs again.
 
 auth-api signs tokens with an RSA key that you generate once into a git-ignored `.env`:
 
