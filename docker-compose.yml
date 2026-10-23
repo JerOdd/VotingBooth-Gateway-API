@@ -219,12 +219,14 @@ services:
     image: chrislusf/seaweedfs:4.48
     restart: always
     # SeaweedFS rejects signed requests unless an identity is configured, even locally.
+    # Each bucket grows its own set of volumes (7 at a time), so the default of 8 per server runs out at the
+    # second bucket; smaller volumes keep 100 of them cheap on a laptop disk.
     environment:
       S3_IDENTITY: >-
         {"identities": [{"name": "local",
                          "credentials": [{"accessKey": "local", "secretKey": "local-secret"}],
                          "actions": ["Admin", "Read", "Write", "List", "Tagging"]}]}
-    entrypoint: ["sh", "-c", "echo \"$$S3_IDENTITY\" > /tmp/s3.json && exec weed server -s3 -s3.config=/tmp/s3.json -dir=/data"]
+    entrypoint: ["sh", "-c", "echo \"$$S3_IDENTITY\" > /tmp/s3.json && exec weed server -s3 -s3.config=/tmp/s3.json -dir=/data -volume.max=100 -master.volumeSizeLimitMB=256"]
     volumes:
       - s3-data:/data
 
