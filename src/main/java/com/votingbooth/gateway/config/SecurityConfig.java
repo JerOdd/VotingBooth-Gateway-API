@@ -20,8 +20,10 @@ public class SecurityConfig {
                 .authorizeExchange(exchanges -> exchanges
                         .pathMatchers("/actuator/**").permitAll()
                         .pathMatchers("/public/**").permitAll()
-                        // Browsing laws and representatives needs no account, in every API version.
-                        .pathMatchers(HttpMethod.GET, "/mobile/*/laws/**", "/mobile/*/representatives/**").permitAll()
+                        // Browsing laws, representatives and a law's vote results needs no account, in every API
+                        // version. Casting a vote does.
+                        .pathMatchers(HttpMethod.GET, "/mobile/*/laws/**", "/mobile/*/representatives/**",
+                                "/mobile/*/votes/*").permitAll()
                         .anyExchange().authenticated()
                 )
                 .oauth2ResourceServer(oauth2 ->

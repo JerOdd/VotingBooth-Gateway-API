@@ -33,8 +33,20 @@ class SecurityConfigTests {
     }
 
     @Test
-    void votesNeedToken() {
+    void lawVotesArePublic() {
+        assertThat(status("/mobile/v1/votes/f69f33df-111c-4975-8508-1a73cfa399d8")).isNotEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    void votesListNeedsToken() {
         assertThat(status("/mobile/v1/votes")).isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    void votingNeedsToken() {
+        HttpStatus status = HttpStatus.valueOf(webTestClient.post().uri("/mobile/v1/votes")
+                .exchange().returnResult(Void.class).getStatus().value());
+        assertThat(status).isEqualTo(HttpStatus.UNAUTHORIZED);
     }
 
     @Test
